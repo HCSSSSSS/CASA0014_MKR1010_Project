@@ -46,6 +46,11 @@ byte RGBpayload[payload_size];
 // --- FSR sensor setup ---
 #define FSR_PIN A0  // sensor pin
 int fsrValue = 0;   // store raw data
+// --- LED control settings ---
+int ledCountOn = 0;         // how many LEDs should turn on
+const int minPress = 300;   // weak press threshold
+const int maxPress = 3000;  // strong press threshold
+
 
 
 void setup() {
@@ -90,10 +95,35 @@ void loop() {
   // keep mqtt alive
   mqttClient.loop();
 
-  // --- FSR test ---
-  fsrValue = analogRead(FSR_PIN);
-  Serial.print("FSR value: "+ fsrValue);  
-  delay(200); 
+// --- FSR to LED control ---
+fsrValue = analogRead(FSR_PIN);      // read sensor
+fsrValue = constrain(fsrValue, minPress, maxPress);  // limit range
+ledCountOn = map(fsrValue, minPress, maxPress, 0, num_leds);  // convert pressure to LED count
+
+// fill color data (first N green, others off)
+for (int i = 0; i < num_leds; i++) {
+  if (i < ledCountOn) {
+    RGBpayload[i * 3 + 0] = 0;            // red
+    RGBpayload[i * 3 + 1] = 220;          // green
+    RGBpayload[i * 3 + 2] = 0;            // blue
+  } else {
+    RGBpayload[i * 3 + 0] = 0;
+    RGBpayload[i * 3 + 1] = 0;
+    RGBpayload[i * 3 + 2] = 0;
+  }
+}
+
+// send LED data to MQTT
+mqttClient.publish(mqtt_topic.c_str(), RGBpayload, payload_size);
+
+// print for check
+Serial.print("FSR=");
+Serial.print(fsrValue);
+Serial.print("  LEDs=");
+Serial.println(ledCountOn);
+
+delay(100);  
+
 
 
 
