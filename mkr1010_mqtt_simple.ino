@@ -1,5 +1,3 @@
-// Duncan Wilson Oct 2025 - v1 - MQTT messager to vespera
-
 // works with MKR1010
 
 #include <SPI.h>
@@ -43,14 +41,14 @@ const int payload_size = num_leds * 3;  // x3 for RGB
 // in memory so that they can be accessed in for example the rainbow function
 byte RGBpayload[payload_size];
 
-// --- FSR sensor setup ---
-#define FSR_PIN A0  // sensor pin
-int fsrValue = 0;   // store raw data
-// --- LED control settings ---
-int ledCountOn = 0;         // how many LEDs should turn on
-const int minPress = 300;   // weak press threshold
-const int maxPress = 3000;  // strong press threshold
+//  FSR Sensor Configuration
+#define SENSOR_PIN A0              // FSR signal input
+const bool INVERT_READING = true;  // If pressing makes the value smaller, set to true
+const float EMA_ALPHA = 0.2;       // Exponential smoothing factor
+float emaVal = 0;                  // Smoothed sensor value
 
+const int MIN_TRIG = 300;   // Minimum threshold
+const int MAX_TRIG = 4095;  // Maximum threshold
 
 
 void setup() {
@@ -76,9 +74,8 @@ void setup() {
   mqttClient.setBufferSize(2000);
   mqttClient.setCallback(callback);
 
-  pinMode(FSR_PIN, INPUT);           // setup FSR pin
-  Serial.println("FSR test ready");  // check serial output
-
+  analogReadResolution(12);         // MKR1010 ADC range: 0–4095
+  emaVal = analogRead(SENSOR_PIN);  // Initialize smoothed value
 
   Serial.println("Set-up complete");
 }
@@ -95,48 +92,45 @@ void loop() {
   // keep mqtt alive
   mqttClient.loop();
 
-// --- FSR to LED control ---
-fsrValue = analogRead(FSR_PIN);      // read sensor
-fsrValue = constrain(fsrValue, minPress, maxPress);  // limit range
-ledCountOn = map(fsrValue, minPress, maxPress, 0, num_leds);  // convert pressure to LED count
+  //  Read FSR sensor and map to number of LEDs
+  int raw = analogRead(SENSOR_PIN);      // Read analog value (0–4095)
+  if (INVERT_READING) raw = 4095 - raw;  // Reverse
 
-// fill color data (first N green, others off)
-for (int i = 0; i < num_leds; i++) {
-  if (i < ledCountOn) {
-    RGBpayload[i * 3 + 0] = 0;            // red
-    RGBpayload[i * 3 + 1] = 220;          // green
-    RGBpayload[i * 3 + 2] = 0;            // blue
-  } else {
-    RGBpayload[i * 3 + 0] = 0;
-    RGBpayload[i * 3 + 1] = 0;
-    RGBpayload[i * 3 + 2] = 0;
-  }
-}
+  // Apply exponential smoothing (EMA)
+  emaVal = EMA_ALPHA * raw + (1.0f - EMA_ALPHA) * emaVal;
 
-// send LED data to MQTT
-mqttClient.publish(mqtt_topic.c_str(), RGBpayload, payload_size);
+  // Map smoothed value to number of LEDs
+  int rel = constrain((int)emaVal, MIN_TRIG, 4095);
+  int N = map(rel, MIN_TRIG, MAX_TRIG, 0, num_leds);
+  N = constrain(N, 0, num_leds);
 
-// print for check
-Serial.print("FSR=");
-Serial.print(fsrValue);
-Serial.print("  LEDs=");
-Serial.println(ledCountOn);
+  //  limit how fast N can increase per frame
+  static int lastN = 0;
+  const int MAX_STEP_UP = 5;  // at most 5 LEDs per frame
+  if (N > lastN + MAX_STEP_UP) N = lastN + MAX_STEP_UP;
+  lastN = N;
 
-delay(100);  
-
-
-
-
-  for (int n = 0; n < num_leds; n++) {
-    send_all_off();
-    delay(100);
-    send_RGB_to_pixel(0, 250, 0, n);
-    delay(200);
+  for (int i = 0; i < num_leds; i++) {
+    if (i < N) {
+      RGBpayload[i * 3 + 0] = 0;
+      RGBpayload[i * 3 + 1] = 220;
+      RGBpayload[i * 3 + 2] = 0;
+    } else {
+      RGBpayload[i * 3 + 0] = 0;
+      RGBpayload[i * 3 + 1] = 0;
+      RGBpayload[i * 3 + 2] = 0;
+    }
   }
 
-  delay(1000);
+  // Publish the 216-byte payload to MQTT
+  if (mqttClient.connected()) {
+    mqttClient.publish(mqtt_topic.c_str(), RGBpayload, payload_size);
+  }
+
+  delay(60);  // Adjust refresh rate (16 updates per second)
 }
 
+/*
 // Function to update the R, G, B values of a single LED pixel
 // RGB can a value between 0-254, pixel is 0-71 for a 72 neopixel strip
 void send_RGB_to_pixel(int r, int g, int b, int pixel) {
@@ -191,6 +185,7 @@ void send_all_random() {
     Serial.println("MQTT mqttClient not connected, cannot publish from *send_all_random*.");
   }
 }
+*/
 
 void printMacAddress(byte mac[]) {
   for (int i = 5; i >= 0; i--) {
