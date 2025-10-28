@@ -1,6 +1,6 @@
 # Pressure Light
 <p align="center">
-  <img src="1.jpg" width="400"/>
+  <img src="./images/1.jpg" width="400"/>
 </p>
 The inspiration for this project comes from pressure balls. When you are under a lot of stress, you might as well press it. As you watch the lights flicker, which reflect the intensity and emotions, your stress will be relieved to a great extent.
 
@@ -15,12 +15,12 @@ Vespera: A WiFi-enabled luminaire that can be controlled via MQTT messages.
 
 FSR402(Force Sensitive Resistor) with linear voltage conversion module: This sensor converts physical pressure into an analog voltage value.
 <p align="center">
-  <img src="2.jpg" width="400"/>
+  <img src="./images/2.jpg" width="400"/>
 </p>
 
 Web Visualise: A web-based interface that mimics the output sent to Vespera. 
 <p align="center">
-  <img src="3.jpg" width="400"/>
+  <img src="./images/3.jpg" width="400"/>
 </p>
 
 ## How it works
