@@ -1,5 +1,3 @@
-// works with MKR1010
-
 #include <SPI.h>
 #include <WiFiNINA.h>
 #include <PubSubClient.h>
@@ -42,21 +40,19 @@ const int payload_size = num_leds * 3;  // x3 for RGB
 byte RGBpayload[payload_size];
 
 //  FSR Sensor Configuration
-#define SENSOR_PIN A0         // FSR signal input
-const float EMA_ALPHA = 0.15;  // Exponential smoothing factor
+#define sensor_pin A0         // FSR signal input
+const float ema_alpha = 0.15;  // Exponential smoothing factor
 float emaVal = 0;             // Smoothed sensor value
-
-const int MIN_TRIG = 400;   // Minimum threshold
-const int MAX_TRIG = 4095;  // Maximum threshold
-
-const int ADC_MAX = 4095;
+const int min_trig = 400;   // Minimum threshold
+const int max_trig = 4095;  // Maximum threshold
+const int adc_max = 4095;   // Maximum value for FSR
 bool invertReading = true;  // if pressing make value smaller then true otherwise false
 
-// Map 0..1 pressure to RGB: green -> yellow -> red
+// Map pressure change RGB 
 static inline void pressureToRGB(float t, uint8_t& r, uint8_t& g, uint8_t& b) {
   if (t < 0) t = 0;
   if (t > 1) t = 1;                    // clamp
-  r = (uint8_t)(255.0f * t);           // more pressure -> more red
+  r = (uint8_t)(255.0f * t);           // more pressure more red
   g = (uint8_t)(255.0f * (1.0f - t));  // less green as pressure grows
   b = 0;
 }
@@ -65,7 +61,6 @@ void setup() {
   Serial.begin(115200);
   //while (!Serial); // Wait for serial port to connect (useful for debugging)
   Serial.println("Vespera");
-
 
   // print your MAC address:
   byte mac[6];
@@ -85,7 +80,7 @@ void setup() {
   mqttClient.setCallback(callback);
 
   analogReadResolution(12);         // MKR1010 ADC range: 0–4095
-  emaVal = analogRead(SENSOR_PIN);  // Initialize smoothed value
+  emaVal = analogRead(sensor_pin);  // Initialize smoothed value
 
   Serial.println("Set-up complete");
 }
@@ -103,26 +98,26 @@ void loop() {
   mqttClient.loop();
 
   //  Read FSR sensor and map to number of LEDs
-  int raw = analogRead(SENSOR_PIN);        // Read analog value (0–4095)
-  if (invertReading) raw = ADC_MAX - raw;  // reverse if needed
+  int raw = analogRead(sensor_pin);        // Read analog value (0–4095)
+  if (invertReading) raw = adc_max - raw;  // reverse if needed
 
   // Apply exponential smoothing (EMA) emaVal = α × new value + (1 - α) × old value
 
-  emaVal = EMA_ALPHA * raw + (1.0f - EMA_ALPHA) * emaVal;
+  emaVal = ema_alpha * raw + (1.0f - ema_alpha) * emaVal;
 
   // Map smoothed value to number of LEDs
-  int rel = constrain((int)emaVal, MIN_TRIG, MAX_TRIG);
-  int N = map(rel, MIN_TRIG, MAX_TRIG, 0, num_leds);
+  int rel = constrain((int)emaVal, min_trig, max_trig);
+  int N = map(rel, min_trig, max_trig, 0, num_leds);
   N = constrain(N, 0, num_leds);
 
   //  limit how fast N can increase per frame
   static int lastN = 0;
-  const int MAX_STEP_UP = 5;  // at most 5 LEDs per frame
-  if (N > lastN + MAX_STEP_UP) N = lastN + MAX_STEP_UP;
+  const int max_step = 5;  // at most 5 LEDs per frame
+  if (N > lastN + max_step) N = lastN + max_step;
   lastN = N;
 
   // --- compute color from pressure 
-  float t = (float)(rel - MIN_TRIG) / (float)(MAX_TRIG - MIN_TRIG); 
+  float t = (float)(rel - min_trig) / (float)(max_trig - min_trig); 
   uint8_t r, g, b;
   pressureToRGB(t, r, g, b);  // get gradient color
 
@@ -138,7 +133,6 @@ void loop() {
       RGBpayload[i * 3 + 2] = 0;
     }
   }
-
 
   // Publish the 216-byte payload to MQTT
   if (mqttClient.connected()) {
